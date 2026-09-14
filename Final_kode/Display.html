@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <title>Whack-a-Mole Score</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: white;
+            text-align: center;
+            margin-top: 50px;
+        }
+
+        h1 {
+            margin-bottom: 40px;
+        }
+
+        .section-label {
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #aaa;
+            margin-bottom: 16px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            transition: opacity 0.4s;
+        }
+
+        .section.faded {
+            opacity: 0.2;
+        }
+
+        .container {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+        }
+
+        .box {
+            background-color: #333;
+            padding: 35px;
+            border-radius: 15px;
+            width: 160px;
+            transition: 0.3s;
+        }
+
+        .box.wide {
+            width: 260px;
+        }
+
+        .highscore-new {
+            background-color: #2e7d32;
+        }
+
+        .value {
+            font-size: 40px;
+            font-weight: bold;
+        }
+
+        .box.wide .value {
+            font-size: 56px;
+        }
+
+        .label {
+            font-size: 18px;
+            color: #aaa;
+        }
+
+        #status {
+            margin-top: 30px;
+            font-size: 14px;
+        }
+
+        #countdown-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.75);
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: white;
+            z-index: 10;
+        }
+
+        #countdown-number {
+            font-size: 160px;
+        }
+
+
+        #countdown-overlay.visible {
+            display: flex;
+        }
+
+        #gameover-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: white;
+            z-index: 10;
+        }
+
+        #gameover-overlay.visible {
+            display: flex;
+        }
+
+        #gameover-title {
+            font-size: 80px;
+        }
+
+        #gameover-label {
+            font-size: 28px;
+            color: #aaa;
+            margin-top: 20px;
+        }
+
+        #gameover-score {
+            font-size: 100px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="countdown-overlay"><span id="countdown-number"></span></div>
+<div id="gameover-overlay">
+    <div id="gameover-title">Game Over!</div>
+    <div id="gameover-label">Final Score</div>
+    <div id="gameover-score"></div>
+</div>
+
+<h1>Whack-a-Mole</h1>
+
+<div class="section faded" id="gameSection">
+    <div class="section-label">Current Game</div>
+    <div class="container">
+        <div class="box" id="scoreBox">
+            <div class="value" id="score">0</div>
+            <div class="label">Score</div>
+        </div>
+        <div class="box">
+            <div class="value" id="time">0</div>
+            <div class="label">Time</div>
+        </div>
+        <div class="box">
+            <div class="value" id="round">0</div>
+            <div class="label">Round</div>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-label">Highscore</div>
+    <div class="container">
+        <div class="box wide" id="highscoreBox">
+            <div class="value" id="highscore">0</div>
+            <div class="label">All-time Best</div>
+        </div>
+    </div>
+</div>
+
+<div id="status">Connecting...</div>
+
+<script>
+const socket = new WebSocket("ws://172.20.10.12:8080/chat"); 
+<!-- const socket = new WebSocket("ws://172.16.15.2:9090/chat"); -->
+
+    const scoreEl          = document.getElementById("score");
+    const timeEl           = document.getElementById("time");
+    const roundEl          = document.getElementById("round");
+    const highscoreEl      = document.getElementById("highscore");
+    const highscoreBox     = document.getElementById("highscoreBox");
+    const statusEl         = document.getElementById("status");
+    const countdownOverlay = document.getElementById("countdown-overlay");
+    const countdownNumber  = document.getElementById("countdown-number");
+    const gameSection      = document.getElementById("gameSection");
+    const gameoverOverlay  = document.getElementById("gameover-overlay");
+    const gameoverScore    = document.getElementById("gameover-score");
+
+    let storedHighscore = parseInt(localStorage.getItem('highscore') || '0');
+    highscoreEl.textContent = storedHighscore;
+
+    let timerInterval = null;
+    let gameoverTimeout = null;
+    let localTime = 0;
+
+    socket.onopen = () => {
+        statusEl.textContent = "Connected";
+    };
+
+    socket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+
+            if (data.gameState === "countdown") {
+                if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+                countdownNumber.textContent = data.countdown;
+                countdownOverlay.classList.add("visible");
+                gameSection.classList.add("faded");
+            } else if (data.gameState === "idle") {
+                if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+                countdownOverlay.classList.remove("visible");
+                gameSection.classList.add("faded");
+
+                const finalScore = data.score !== undefined ? data.score : parseInt(scoreEl.textContent);
+                gameoverScore.textContent = finalScore;
+                gameoverOverlay.classList.add("visible");
+
+                if (gameoverTimeout) clearTimeout(gameoverTimeout);
+                gameoverTimeout = setTimeout(() => {
+                    gameoverOverlay.classList.remove("visible");
+                    scoreEl.textContent = 0;
+                    timeEl.textContent  = 0;
+                    roundEl.textContent = 0;
+                    gameoverTimeout = null;
+                }, 5000);
+            } else {
+                if (gameoverTimeout) { clearTimeout(gameoverTimeout); gameoverTimeout = null; }
+                gameoverOverlay.classList.remove("visible");
+                countdownOverlay.classList.remove("visible");
+                gameSection.classList.remove("faded");
+            }
+
+            if (data.score !== undefined) {
+                scoreEl.textContent = data.score;
+            }
+
+            if (data.time !== undefined) {
+                const serverTime = data.time;
+
+                if (!timerInterval && serverTime > 0) {
+                    localTime = serverTime;
+                    timeEl.textContent = localTime;
+                    timerInterval = setInterval(() => {
+                        if (localTime > 0) {
+                            localTime--;
+                            timeEl.textContent = localTime;
+                        } else {
+                            clearInterval(timerInterval);
+                            timerInterval = null;
+                        }
+                    }, 1000);
+                } else if (timerInterval && Math.abs(serverTime - localTime) > 2) {
+                    localTime = serverTime;
+                }
+            }
+
+            if (data.round !== undefined) {
+                roundEl.textContent = data.round;
+            }
+
+            if (data.highScore !== undefined) {
+                storedHighscore = data.highScore;
+                localStorage.setItem('highscore', storedHighscore);
+                highscoreEl.textContent = data.highScore;
+                const beating = data.score !== undefined && data.score >= data.highScore && data.highScore > 0;
+                highscoreBox.classList.toggle('highscore-new', beating);
+            }
+
+        } catch (e) {
+            console.error("Invalid JSON:", e);
+        }
+    };
+
+    socket.onclose = () => {
+        statusEl.textContent = "Disconnected";
+    };
+
+    socket.onerror = () => {
+        statusEl.textContent = "Error";
+    };
+</script>
+
+</body>
+</html>
